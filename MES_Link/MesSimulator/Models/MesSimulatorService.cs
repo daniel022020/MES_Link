@@ -21,6 +21,9 @@ namespace MES_Link.MesSimulator
         // 存放使用者動態新增的 Block 區塊集合
         public ObservableCollection<MesRouteBlock> Routes { get; set; } = new ObservableCollection<MesRouteBlock>();
 
+        // 用於跨執行緒鎖定 ObservableCollection 的鎖定物件
+        public readonly object RoutesLock = new object();
+
         // 當模擬器收到連線或發生事件時，通知 ViewModel 的事件
         public event Action<string> OnSimulatorLogAppended;
 
@@ -83,8 +86,9 @@ namespace MES_Link.MesSimulator
                 try
                 {
                     var context = await _listener.GetContextAsync();
+
                     // 多執行緒處理每個客戶端連線
-                    _ = Task.Run(() => ProcessRequest(context));
+                    _ = Task.Run(async () => await ProcessRequestAsync(context));
                 }
                 catch (Exception ex) when (ex is HttpListenerException ||
                                            ex is ObjectDisposedException ||
@@ -108,7 +112,7 @@ namespace MES_Link.MesSimulator
         }
 
         // 處理 HTTP POST/GET 請求核心
-        private void ProcessRequest(HttpListenerContext context)
+        private async Task ProcessRequestAsync(HttpListenerContext context)
         {
             var request = context.Request;
             var response = context.Response;
@@ -146,7 +150,7 @@ namespace MES_Link.MesSimulator
                     // POST: 從 InputStream 讀取 Body 內容
                     using (var reader = new StreamReader(request.InputStream, encoding))
                     {
-                        body = reader.ReadToEnd();
+                        body = await reader.ReadToEndAsync();
                     }
 
                     if (!string.IsNullOrEmpty(body))
@@ -165,11 +169,7 @@ namespace MES_Link.MesSimulator
                 }
 
                 // 匹配 Route
-                MesRouteBlock matchedRoute = null;
-                lock (Routes)
-                {
-                    matchedRoute = Routes.FirstOrDefault(r => r.RouteUrl.Equals(rawPath, StringComparison.OrdinalIgnoreCase));
-                }
+                MesRouteBlock matchedRoute = Routes.FirstOrDefault(r => r.RouteUrl.Equals(rawPath, StringComparison.OrdinalIgnoreCase));
 
                 string responseText = string.Empty;
 
@@ -197,7 +197,7 @@ namespace MES_Link.MesSimulator
                     {
                         ShowLog(eLogType.INFO, $"Simulating delay response for {rawPath}: Waiting {matchedRoute.DelayMs}ms...");
                         int delayMilliseconds = matchedRoute.DelayMs * 1000;
-                        System.Threading.Thread.Sleep(delayMilliseconds);
+                        await Task.Delay(delayMilliseconds);
                     }
                 }
                 else
@@ -213,7 +213,7 @@ namespace MES_Link.MesSimulator
                 byte[] buffer = Encoding.UTF8.GetBytes(responseText);
                 response.ContentEncoding = Encoding.UTF8;
                 response.ContentLength64 = buffer.Length;
-                response.OutputStream.Write(buffer, 0, buffer.Length);
+                await response.OutputStream.WriteAsync(buffer, 0, buffer.Length);
                 response.OutputStream.Close();
                 response.Close();
 

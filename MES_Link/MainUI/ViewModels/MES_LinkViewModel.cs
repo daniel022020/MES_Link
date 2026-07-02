@@ -10,6 +10,7 @@ using System.Collections.Generic;
 using Newtonsoft.Json;
 using System.IO;
 using System.Text;
+using System.Threading.Tasks;
 
 namespace MES_Link.MainUI.ViewModels
 {
@@ -24,14 +25,19 @@ namespace MES_Link.MainUI.ViewModels
 
         // 增加List Route
         public RelayCommand AddRouteCommand { get; }
+
         // 移除List Route
-        public RelayCommand<MesRouteBlock> RemoveRouteCommand { get; }
+        public AsyncRelayCommand<MesRouteBlock> RemoveRouteCommand { get; }
+
         // 複製List Url
         public RelayCommand<MesRouteBlock> CopyRouteUrlCommand { get; }
+
         // Server啟動/關閉
         public RelayCommand ToggleServerCommand { get; }
+
         // 編輯、儲存全域按鈕
-        public RelayCommand ToggleGlobalLockCommand { get; private set; }
+        public AsyncRelayCommand ToggleGlobalLockCommand { get; private set; }
+
         // Server按鈕文字
         public string ServerButtonText => IsServerRunning ? "◼️ Stop" : "▶ Start";
         // 編輯、儲存全域按鈕文字
@@ -54,19 +60,17 @@ namespace MES_Link.MainUI.ViewModels
             _mesSimulatorService.OnSimulatorLogAppended += MesSimulatorService_OnSimulatorLogAppended;
 
             AddRouteCommand = new RelayCommand(OnAddRoute);
-            RemoveRouteCommand = new RelayCommand<MesRouteBlock>(OnRemoveRoute);
+            RemoveRouteCommand = new AsyncRelayCommand<MesRouteBlock>(OnRemoveRouteAsync);
             ToggleServerCommand = new RelayCommand(ToggleServer);
-            ToggleGlobalLockCommand = new RelayCommand(OnToggleGlobalLock);
+            ToggleGlobalLockCommand = new AsyncRelayCommand(OnToggleGlobalLockAsync);
             CopyRouteUrlCommand = new RelayCommand<MesRouteBlock>(OnCopyRouteUrl);
 
             LoadSettingsOnStartup();
 
-            // 唯有當從 INI 讀出來完全沒資料時，才給予一筆預設的測試 JWT Block 範例
+            // 唯有當從 INI 讀出來完全沒資料時，才給予一筆預設
             if (_mesSimulatorService.Routes.Count == 0)
             {
-                _mesSimulatorService.Routes.Add(new MesRouteBlock
-                {
-                });
+                _mesSimulatorService.Routes.Add(new MesRouteBlock());
             }
 
             // 綁定關閉邏輯
@@ -99,7 +103,6 @@ namespace MES_Link.MainUI.ViewModels
             {
                 if (SetProperty(ref _baseUrlInput, value))
                 {
-                    // 同步更新到 Service 中
                     if (_mesSimulatorService != null)
                     {
                         _mesSimulatorService.BaseUrl = value;
@@ -117,12 +120,12 @@ namespace MES_Link.MainUI.ViewModels
         }
 
         // 編輯、儲存全域按鈕
-        private void OnToggleGlobalLock()
+        private async Task OnToggleGlobalLockAsync()
         {
             if (!IsRoutesLocked)
             {
                 // 從 編輯 切換回 儲存 時，集體存檔
-                SaveCurrentSettings();
+                await SaveCurrentSettingsAsync();
                 IniFile.Save(IniFile.Current);
             }
             IsRoutesLocked = !IsRoutesLocked;
@@ -167,7 +170,12 @@ namespace MES_Link.MainUI.ViewModels
                 }
 
                 // 讀取檔案
-                string jsonStr = File.ReadAllText(filePath, Encoding.UTF8);
+                string jsonStr = string.Empty;
+                using (var reader = new StreamReader(filePath, Encoding.UTF8))
+                {
+                    jsonStr = reader.ReadToEnd();
+                }
+
                 if (string.IsNullOrEmpty(jsonStr))
                 {
                     LogService.MainLogger.Error("jsonStr is null or empty. Fallback to default.");
@@ -217,20 +225,22 @@ namespace MES_Link.MainUI.ViewModels
             {
                 _mesSimulatorService.Routes.Clear(); // 確保清空
                 _mesSimulatorService.Routes.Add(new MesRouteBlock());
-                SaveCurrentSettings();
+
+                // 建構子初始化階段，使用快速背景線程同步等待存檔避免異步死鎖
+                Task.Run(async () => await SaveCurrentSettingsAsync()).Wait();
             }
         }
 
         // 驗證並修正 Route 的欄位值
         private void ValidateAndSanitizeRoute(MesRouteBlock route)
         {
-            if (!StatusCodesItem.Contains(route.StatusCode_Format1)) 
+            if (!StatusCodesItem.Contains(route.StatusCode_Format1))
                 route.StatusCode_Format1 = 200;
-            if (!StatusCodesItem.Contains(route.StatusCode_Format2)) 
+            if (!StatusCodesItem.Contains(route.StatusCode_Format2))
                 route.StatusCode_Format2 = 400;
-            if (!ContentTypesItem.Contains(route.ContentType)) 
+            if (!ContentTypesItem.Contains(route.ContentType))
                 route.ContentType = "application/json";
-            if (!DelayMsItem.Contains(route.DelayMs)) 
+            if (!DelayMsItem.Contains(route.DelayMs))
                 route.DelayMs = 0;
         }
 
@@ -245,8 +255,8 @@ namespace MES_Link.MainUI.ViewModels
             }
         }
 
-        // 儲存 INI 與 Format設定
-        public void SaveCurrentSettings()
+        // 儲存 INI 與 Format 設定
+        public async Task SaveCurrentSettingsAsync()
         {
             try
             {
@@ -254,10 +264,12 @@ namespace MES_Link.MainUI.ViewModels
                 string jsonStr = JsonConvert.SerializeObject(routeList, Formatting.Indented);
                 string filePath = GetJsonFilePath();
 
-                // 將當前的 Block 物件狀包成 JSON 字串存入記憶體中
-                File.WriteAllText(filePath, jsonStr, Encoding.UTF8);
-                IniFile.Current.MesSimulatorSettings.BaseUrl = BaseUrlInput;
+                using (var writer = new StreamWriter(filePath, false, Encoding.UTF8))
+                {
+                    await writer.WriteAsync(jsonStr);
+                }
 
+                IniFile.Current.MesSimulatorSettings.BaseUrl = BaseUrlInput;
                 IniFile.Save(IniFile.Current);
             }
             catch (Exception ex)
@@ -275,8 +287,8 @@ namespace MES_Link.MainUI.ViewModels
             // 解除事件訂閱，防止 GC 無法回收造成記憶體洩漏
             _mesSimulatorService.OnSimulatorLogAppended -= MesSimulatorService_OnSimulatorLogAppended;
 
-            // 關閉前確保目前的動態 Block 狀態有同步序列化保存到 INI 中
-            SaveCurrentSettings();
+            // 確保主程式生命週期結束前，能將資料緩衝區成功 Flush 並寫入硬碟中
+            Task.Run(async () => await SaveCurrentSettingsAsync()).Wait();
 
             LogService.MainLogger.Info("Close Window ...");
         }
@@ -307,12 +319,12 @@ namespace MES_Link.MainUI.ViewModels
         }
 
         // 移除List Route
-        private void OnRemoveRoute(MesRouteBlock block)
+        private async Task OnRemoveRouteAsync(MesRouteBlock block)
         {
             if (block != null)
             {
                 MesRoutes.Remove(block);
-                SaveCurrentSettings(); // 刪除時自動更新暫存
+                await SaveCurrentSettingsAsync(); // 刪除時自動更新暫存
             }
         }
 
@@ -332,7 +344,8 @@ namespace MES_Link.MainUI.ViewModels
                     // 調整後的邏輯：如果未鎖定，呼叫此方法會內部存檔並翻轉為鎖定狀態(true)
                     if (!IsRoutesLocked)
                     {
-                        OnToggleGlobalLock();
+                        // 異步執行
+                        ToggleGlobalLockCommand.Execute(null);
                     }
                     else
                     {
@@ -366,7 +379,7 @@ namespace MES_Link.MainUI.ViewModels
                 Directory.CreateDirectory(folderPath);
             }
 
-            // 回傳完整檔案路徑 (例如: bin/Debug/FORMAT/MesRoutes.json)
+            // 回傳完整檔案路徑
             return Path.Combine(folderPath, "Format.json");
         }
 
