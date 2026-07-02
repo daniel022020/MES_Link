@@ -1,0 +1,380 @@
+﻿using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using System;
+using System.Collections.ObjectModel;
+using System.Windows.Forms;
+using MES_Link.MesSimulator;
+using MES_Link.IniParser;
+using MES_Link.Log;
+using System.Collections.Generic;
+using Newtonsoft.Json;
+using System.IO;
+using System.Text;
+
+namespace MES_Link.MainUI.ViewModels
+{
+    public class MES_LinkViewModel : ObservableObject
+    {
+        // 視窗關閉的 Command
+        public RelayCommand WindowClosingCommand { get; }
+
+        // MES 模擬器
+        private readonly MesSimulatorService _mesSimulatorService;
+        public ObservableCollection<MesRouteBlock> MesRoutes => _mesSimulatorService.Routes;
+
+        // 增加List Route
+        public RelayCommand AddRouteCommand { get; }
+        // 移除List Route
+        public RelayCommand<MesRouteBlock> RemoveRouteCommand { get; }
+        // 複製List Url
+        public RelayCommand<MesRouteBlock> CopyRouteUrlCommand { get; }
+        // Server啟動/關閉
+        public RelayCommand ToggleServerCommand { get; }
+        // 編輯、儲存全域按鈕
+        public RelayCommand ToggleGlobalLockCommand { get; private set; }
+        // Server按鈕文字
+        public string ServerButtonText => IsServerRunning ? "◼️ Stop" : "▶ Start";
+        // 編輯、儲存全域按鈕文字
+        public string GlobalLockButtonText => _isRoutesLocked ? "✏️" : "💾";
+        // UI StatusCode選項
+        public List<int> StatusCodesItem { get; } = new List<int> { 200, 400, 404, 500 };
+        // UI 延遲秒數選項
+        public List<int> DelayMsItem { get; } = new List<int> { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
+        // UI ContentType選項
+        public List<string> ContentTypesItem { get; } = new List<string> { "application/json", "text/xml; charset=utf-8", "application/xml", "application/soap+xml; charset=utf-8", "text/plain; charset=utf-8", "text/html; charset=utf-8" };
+
+        // 按鈕的狀態
+        public bool IsRoutesEditable => !_isRoutesLocked;
+
+        public bool IsServerRunning => _mesSimulatorService?.IsRunning ?? false;
+
+        public MES_LinkViewModel()
+        {
+            _mesSimulatorService = new MesSimulatorService();
+            _mesSimulatorService.OnSimulatorLogAppended += MesSimulatorService_OnSimulatorLogAppended;
+
+            AddRouteCommand = new RelayCommand(OnAddRoute);
+            RemoveRouteCommand = new RelayCommand<MesRouteBlock>(OnRemoveRoute);
+            ToggleServerCommand = new RelayCommand(ToggleServer);
+            ToggleGlobalLockCommand = new RelayCommand(OnToggleGlobalLock);
+            CopyRouteUrlCommand = new RelayCommand<MesRouteBlock>(OnCopyRouteUrl);
+
+            LoadSettingsOnStartup();
+
+            // 唯有當從 INI 讀出來完全沒資料時，才給予一筆預設的測試 JWT Block 範例
+            if (_mesSimulatorService.Routes.Count == 0)
+            {
+                _mesSimulatorService.Routes.Add(new MesRouteBlock
+                {
+                });
+            }
+
+            // 綁定關閉邏輯
+            WindowClosingCommand = new RelayCommand(OnWindowClosing);
+
+            LogService.MainLogger.Info("Initial MES_Link...");
+        }
+
+        // Route List鎖定狀態
+        private bool _isRoutesLocked = true;
+        public bool IsRoutesLocked
+        {
+            get => _isRoutesLocked;
+            set
+            {
+                if (SetProperty(ref _isRoutesLocked, value))
+                {
+                    OnPropertyChanged(nameof(IsRoutesEditable));
+                    OnPropertyChanged(nameof(GlobalLockButtonText));
+                }
+            }
+        }
+
+        // Base Url
+        private string _baseUrlInput = "http://localhost:8080/";
+        public string BaseUrlInput
+        {
+            get => _baseUrlInput;
+            set
+            {
+                if (SetProperty(ref _baseUrlInput, value))
+                {
+                    // 同步更新到 Service 中
+                    if (_mesSimulatorService != null)
+                    {
+                        _mesSimulatorService.BaseUrl = value;
+                    }
+                }
+            }
+        }
+
+        private string _simulatorLog;
+        // UI 記錄 LOG
+        public string SimulatorLog
+        {
+            get => _simulatorLog;
+            set => SetProperty(ref _simulatorLog, value);
+        }
+
+        // 編輯、儲存全域按鈕
+        private void OnToggleGlobalLock()
+        {
+            if (!IsRoutesLocked)
+            {
+                // 從 編輯 切換回 儲存 時，集體存檔
+                SaveCurrentSettings();
+                IniFile.Save(IniFile.Current);
+            }
+            IsRoutesLocked = !IsRoutesLocked;
+        }
+
+        // 複製List Url
+        private void OnCopyRouteUrl(MesRouteBlock block)
+        {
+            if (block == null)
+                return;
+
+            try
+            {
+                string routeUrl = block.RouteUrl ?? string.Empty;
+                string fullUrl = _baseUrlInput + routeUrl;
+
+                // 複製到系統
+                System.Windows.Forms.Clipboard.SetText(fullUrl);
+
+                LogService.MainLogger.Info($"User copied URL: {fullUrl}");
+            }
+            catch (Exception ex)
+            {
+                LogService.MainLogger.Error(ex, "Copy url fail。");
+            }
+        }
+
+        // 載入初始化設定
+        private void LoadSettingsOnStartup()
+        {
+            try
+            {
+                string filePath = GetJsonFilePath();
+
+                // 檢查檔案是否存在，若不存在則直接初始化預設值並結束
+                if (!File.Exists(filePath))
+                {
+                    LogService.MainLogger.Info("Initial default setting for MesRouteBlock (File not found)");
+                    InitializeDefaultSettings();
+                    LoadBaseUrl();
+                    return;
+                }
+
+                // 讀取檔案
+                string jsonStr = File.ReadAllText(filePath, Encoding.UTF8);
+                if (string.IsNullOrEmpty(jsonStr))
+                {
+                    LogService.MainLogger.Error("jsonStr is null or empty. Fallback to default.");
+                    InitializeDefaultSettings();
+                    LoadBaseUrl();
+                    return;
+                }
+
+                // 反序列化
+                var savedRoutes = JsonConvert.DeserializeObject<List<MesRouteBlock>>(jsonStr);
+                if (savedRoutes == null)
+                {
+                    LogService.MainLogger.Error("savedRoutes is null. Fallback to default.");
+                    InitializeDefaultSettings();
+                    LoadBaseUrl();
+                    return;
+                }
+
+                // 檢查服務狀態
+                if (_mesSimulatorService == null || _mesSimulatorService.Routes == null)
+                {
+                    LogService.MainLogger.Error("_mesSimulatorService or _mesSimulatorService.Routes is null");
+                    return;
+                }
+
+                // 驗證並載入資料
+                _mesSimulatorService.Routes.Clear();
+                foreach (var route in savedRoutes)
+                {
+                    ValidateAndSanitizeRoute(route);
+                    _mesSimulatorService.Routes.Add(route);
+                }
+
+                // 載入 BaseUrl
+                LoadBaseUrl();
+            }
+            catch (Exception ex)
+            {
+                LogService.MainLogger.Fatal(ex, "Load settings on startup fail");
+            }
+        }
+
+        // 初始化預設設定
+        private void InitializeDefaultSettings()
+        {
+            if (_mesSimulatorService?.Routes != null)
+            {
+                _mesSimulatorService.Routes.Clear(); // 確保清空
+                _mesSimulatorService.Routes.Add(new MesRouteBlock());
+                SaveCurrentSettings();
+            }
+        }
+
+        // 驗證並修正 Route 的欄位值
+        private void ValidateAndSanitizeRoute(MesRouteBlock route)
+        {
+            if (!StatusCodesItem.Contains(route.StatusCode_Format1)) 
+                route.StatusCode_Format1 = 200;
+            if (!StatusCodesItem.Contains(route.StatusCode_Format2)) 
+                route.StatusCode_Format2 = 400;
+            if (!ContentTypesItem.Contains(route.ContentType)) 
+                route.ContentType = "application/json";
+            if (!DelayMsItem.Contains(route.DelayMs)) 
+                route.DelayMs = 0;
+        }
+
+        // 載入 BaseUrl 設定
+        private void LoadBaseUrl()
+        {
+            string lastBaseUrl = IniFile.Current.MesSimulatorSettings.BaseUrl;
+            if (!string.IsNullOrEmpty(lastBaseUrl) && _mesSimulatorService != null)
+            {
+                BaseUrlInput = lastBaseUrl;
+                _mesSimulatorService.BaseUrl = BaseUrlInput;
+            }
+        }
+
+        // 儲存 INI 與 Format設定
+        public void SaveCurrentSettings()
+        {
+            try
+            {
+                var routeList = new List<MesRouteBlock>(_mesSimulatorService.Routes);
+                string jsonStr = JsonConvert.SerializeObject(routeList, Formatting.Indented);
+                string filePath = GetJsonFilePath();
+
+                // 將當前的 Block 物件狀包成 JSON 字串存入記憶體中
+                File.WriteAllText(filePath, jsonStr, Encoding.UTF8);
+                IniFile.Current.MesSimulatorSettings.BaseUrl = BaseUrlInput;
+
+                IniFile.Save(IniFile.Current);
+            }
+            catch (Exception ex)
+            {
+                LogService.MainLogger.Fatal(ex, "Save current settings fail");
+            }
+        }
+
+        // 視窗關閉後
+        private void OnWindowClosing()
+        {
+            // 視窗關閉時強制將連線監聽關閉防止卡通訊埠
+            _mesSimulatorService.Stop();
+
+            // 解除事件訂閱，防止 GC 無法回收造成記憶體洩漏
+            _mesSimulatorService.OnSimulatorLogAppended -= MesSimulatorService_OnSimulatorLogAppended;
+
+            // 關閉前確保目前的動態 Block 狀態有同步序列化保存到 INI 中
+            SaveCurrentSettings();
+
+            LogService.MainLogger.Info("Close Window ...");
+        }
+
+        // MES 模擬器Log
+        private void MesSimulatorService_OnSimulatorLogAppended(string logText)
+        {
+            System.Windows.Application.Current.Dispatcher.Invoke(() =>
+            {
+                string newLog = SimulatorLog + logText;
+
+                // 如果字串超過 10 萬個字元就截斷舊的
+                if (newLog.Length > 100000)
+                {
+                    // 保留後半段
+                    newLog = "Log truncated for performance...\r\n" + newLog.Substring(newLog.Length - 50000);
+                }
+
+                SimulatorLog = newLog;
+            });
+        }
+
+        // 增加List Route
+        private void OnAddRoute()
+        {
+            MesRoutes.Add(new MesRouteBlock());
+            IsRoutesLocked = false;
+        }
+
+        // 移除List Route
+        private void OnRemoveRoute(MesRouteBlock block)
+        {
+            if (block != null)
+            {
+                MesRoutes.Remove(block);
+                SaveCurrentSettings(); // 刪除時自動更新暫存
+            }
+        }
+
+        // Server啟動/關閉
+        private void ToggleServer()
+        {
+            if (!_mesSimulatorService.IsRunning)
+            {
+                // 啟動前強制把網址更新進 Service
+                _mesSimulatorService.BaseUrl = BaseUrlInput;
+
+                // Service Start 成功才處理
+                if (_mesSimulatorService.Start())
+                {
+                    LogService.MainLogger.Info("MES Simulator start successfully.");
+
+                    // 調整後的邏輯：如果未鎖定，呼叫此方法會內部存檔並翻轉為鎖定狀態(true)
+                    if (!IsRoutesLocked)
+                    {
+                        OnToggleGlobalLock();
+                    }
+                    else
+                    {
+                        // 若原本即為鎖定狀態，則直接確保指派即可
+                        IsRoutesLocked = true;
+                    }
+                }
+            }
+            else
+            {
+                // Service Stop 成功才處理
+                if (_mesSimulatorService.Stop())
+                {
+                    LogService.MainLogger.Info("MES Simulator stop successfully.");
+                }
+            }
+
+            // 集中更新所有與 Server 狀態相關的 UI 通知
+            RefreshServerStatusUI();
+        }
+
+        // 定義 JSON 檔案的儲存路徑
+        private string GetJsonFilePath()
+        {
+            // 取得 bin 執行目錄下的 RouteFormat 資料夾
+            string folderPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "RouteFormat");
+
+            // 如果資料夾不存在就建立
+            if (!Directory.Exists(folderPath))
+            {
+                Directory.CreateDirectory(folderPath);
+            }
+
+            // 回傳完整檔案路徑 (例如: bin/Debug/FORMAT/MesRoutes.json)
+            return Path.Combine(folderPath, "Format.json");
+        }
+
+        // Server 狀態變更時需要被通知重新渲染的 UI 屬性
+        private void RefreshServerStatusUI()
+        {
+            OnPropertyChanged(nameof(IsServerRunning));
+            OnPropertyChanged(nameof(ServerButtonText));
+        }
+    }
+}

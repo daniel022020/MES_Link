@@ -1,0 +1,47 @@
+## 步驟 1：修改 .csproj 檔案（自動搬移檔案）
+我們利用 MSBuild 的建置目標（Targets），在編譯完成後，自動把除了主程式與基本設定檔以外的 .dll 和 .xml 搬移到 NUGETPACKAGE 資料夾內。
+
+在 Visual Studio 的方案總管中，對著你的專案名稱點擊右鍵 ➔ 選擇 「卸載專案」(Unload Project)。
+
+再次對專案名稱點擊右鍵 ➔ 選擇 「編輯專案檔」(Edit XXX.csproj)。
+
+捲動到檔案最底部，在 </Project> 結束標籤的前方，貼上以下這段 MSBuild 腳本：
+
+<Target Name="MoveNuGetDependencies" AfterTargets="Build">
+    <ItemGroup>
+      <DependencyFiles Include="$(OutputPath)*.dll;$(OutputPath)*.xml" 
+                       Exclude="$(OutputPath)$(TargetName).dll;$(OutputPath)$(TargetName).xml" />
+    </ItemGroup>
+
+    <Move SourceFiles="@(DependencyFiles)" 
+          DestinationFolder="$(OutputPath)NUGETPACKAGE" 
+          OverwriteReadOnlyFiles="true" />
+  </Target>
+
+儲存並關閉該檔案。
+
+對著專案名稱點擊右鍵 ➔ 選擇 「重新載入專案」(Reload Project)。
+
+## 步驟 2：修改 App.config（讓主程式找不到 DLL 時去新資料夾找）
+當你把 .dll 搬進 NUGETPACKAGE 資料夾後，主程式 .exe 執行時會因為在根目錄找不到這些套件而發生 FileNotFoundException 崩潰。我們必須透過 App.config 告訴 .NET 執行時期（Runtime）額外的搜尋路徑。
+
+在方案總管中，打開 App.config 檔案（如果沒有，請右鍵新增項目 ➔ 應用程式組態檔）。
+
+將內容修改並加上 <runtime> 節點，指定 privatePath：
+
+    <runtime>
+        <assemblyBinding xmlns="urn:schemas-microsoft-com:asm.v1">
+            <probing privatePath="NUGETPACKAGE" />
+        </assemblyBinding>
+    </runtime>
+
+## 步驟 3：調整 Visual Studio 的偵錯設定
+因為我們把 DLL 搬家了，有時候 Visual Studio 的「啟用 ClickOnce 安全性設定」或「快速裝載」功能會導致偵錯時找不到檔案。請確保以下設定：
+
+專案名稱點擊右鍵 ➔ 屬性 (Properties)。
+
+切換到 「建置」(Build) 頁籤。
+
+確保 「輸出路徑」(Output path) 維持預設（通常是 bin\Debug\ 或 bin\Release\）。
+
+清除專案並重新建置：點選 Visual Studio 上方的選單 ➔ 建置 (Build) ➔ 重建方案 (Rebuild Solution)。
