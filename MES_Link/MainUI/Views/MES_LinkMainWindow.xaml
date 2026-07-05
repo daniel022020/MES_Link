@@ -213,7 +213,7 @@
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
 
-                            <TextBlock Text="Version 1.0.0.0" 
+                            <TextBlock Text="{Binding DataContext.CopyRights, RelativeSource={RelativeSource AncestorType=Window}}"  
                                        Foreground="#94A3B8" 
                                        VerticalAlignment="Center" 
                                        Margin="5" 

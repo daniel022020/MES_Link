@@ -11,6 +11,7 @@ using Newtonsoft.Json;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
+using System.Reflection;
 
 namespace MES_Link.MainUI.ViewModels
 {
@@ -54,8 +55,19 @@ namespace MES_Link.MainUI.ViewModels
 
         public bool IsServerRunning => _mesSimulatorService?.IsRunning ?? false;
 
+        // 版權、版號
+        private string _copyRights;
+        public string CopyRights
+        {
+            get => _copyRights;
+            set => SetProperty(ref _copyRights, value);
+        }
+
         public MES_LinkViewModel()
         {
+
+            LogService.MainLogger.Info("Initial MES_Link...");
+
             _mesSimulatorService = new MesSimulatorService();
             _mesSimulatorService.OnSimulatorLogAppended += MesSimulatorService_OnSimulatorLogAppended;
 
@@ -76,7 +88,7 @@ namespace MES_Link.MainUI.ViewModels
             // 綁定關閉邏輯
             WindowClosingCommand = new RelayCommand(OnWindowClosing);
 
-            LogService.MainLogger.Info("Initial MES_Link...");
+            InitCopyRightsText();
         }
 
         // Route List鎖定狀態
@@ -314,7 +326,10 @@ namespace MES_Link.MainUI.ViewModels
         // 增加List Route
         private void OnAddRoute()
         {
-            MesRoutes.Add(new MesRouteBlock());
+            lock (_mesSimulatorService.RoutesLock)
+            {
+                MesRoutes.Add(new MesRouteBlock());
+            }
             IsRoutesLocked = false;
         }
 
@@ -381,6 +396,26 @@ namespace MES_Link.MainUI.ViewModels
 
             // 回傳完整檔案路徑
             return Path.Combine(folderPath, "Format.json");
+        }
+
+        private void InitCopyRightsText()
+        {
+            try
+            {
+                // 取得組件資訊
+                Assembly assembly = Assembly.GetExecutingAssembly();
+
+                // 版號
+                string version = assembly.GetName().Version?.ToString() ?? "2.4.0.19";
+
+                // 組合字串
+                CopyRights = $"Version {version}";
+            }
+            catch (Exception)
+            {
+                // 預設值
+                CopyRights = "Version 2.4.0.19";
+            }
         }
 
         // Server 狀態變更時需要被通知重新渲染的 UI 屬性

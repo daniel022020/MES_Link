@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using MES_Link.Log;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Newtonsoft.Json;
+using System.Collections.Generic;
 
 namespace MES_Link.MesSimulator
 {
@@ -47,9 +48,16 @@ namespace MES_Link.MesSimulator
                 Task.Run(ListenLoop);
                 return true;
             }
+            catch (HttpListenerException ex)
+            {
+                // 埠號被佔用或權限不足
+                ShowLog(eLogType.ERROR, $"Failed to start server (port may be in use): {ex.Message}");
+                _isRunning = false;
+                return false;
+            }
             catch (Exception ex)
             {
-                ShowLog(eLogType.FATAL, $"Failed to start server: {ex.Message}");
+                ShowLog(eLogType.FATAL, $"Unexpected error starting server: {ex.Message}");
                 _isRunning = false;
                 return false;
             }
@@ -70,9 +78,16 @@ namespace MES_Link.MesSimulator
 
                 return true;
             }
+            catch (HttpListenerException ex)
+            {
+                // 埠號被佔用或權限不足
+                ShowLog(eLogType.ERROR, $"Failed to stop server (port may be in use): {ex.Message}");
+                _isRunning = false;
+                return false;
+            }
             catch (Exception ex)
             {
-                ShowLog(eLogType.FATAL, $"Failed to stop server: {ex.Message}");
+                ShowLog(eLogType.FATAL, $"Unexpected error stopping server: {ex.Message}");
                 _isRunning = false;
                 return false;
             }
@@ -169,7 +184,7 @@ namespace MES_Link.MesSimulator
                 }
 
                 // 匹配 Route
-                MesRouteBlock matchedRoute = Routes.FirstOrDefault(r => r.RouteUrl.Equals(rawPath, StringComparison.OrdinalIgnoreCase));
+                MesRouteBlock matchedRoute = FindRoute(rawPath);
 
                 string responseText = string.Empty;
 
@@ -227,8 +242,22 @@ namespace MES_Link.MesSimulator
                     response.StatusCode = (int)HttpStatusCode.InternalServerError;
                     response.OutputStream.Close();
                 }
-                catch { }
+                catch
+                {
+                    ShowLog(eLogType.FATAL, $"Send Error response fail");
+                }
             }
+        }
+
+        // 執行緒安全快照
+        private MesRouteBlock FindRoute(string path)
+        {
+            List<MesRouteBlock> snapshot;
+            lock (RoutesLock)
+            {
+                snapshot = Routes.ToList(); // 複製一份，離開 lock 後在複製品上操作
+            }
+            return snapshot.FirstOrDefault(r => r.RouteUrl.Equals(path, StringComparison.OrdinalIgnoreCase));
         }
 
         // 寫Log，UI同步新增
