@@ -433,7 +433,7 @@ namespace MES_Link.MainUI.ViewModels
                 Assembly assembly = Assembly.GetExecutingAssembly();
 
                 // 版號
-                string version = assembly.GetName().Version?.ToString() ?? "2.4.0.19";
+                string version = assembly.GetName().Version?.ToString() ?? "2.4.0.20";
 
                 // 組合字串
                 CopyRights = $"Version {version}";
@@ -441,7 +441,7 @@ namespace MES_Link.MainUI.ViewModels
             catch (Exception)
             {
                 // 預設值
-                CopyRights = "Version 2.4.0.19";
+                CopyRights = "Version 2.4.0.20";
             }
         }
 
