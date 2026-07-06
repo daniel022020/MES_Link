@@ -162,6 +162,7 @@ namespace MES_Link.MainUI.ViewModels
             catch (Exception ex)
             {
                 LogService.MainLogger.Error(ex, "Copy url fail。");
+                ShowErrorMessage("Copy route url fail" + $":{ex.Message}", "Error");
             }
         }
 
@@ -227,6 +228,7 @@ namespace MES_Link.MainUI.ViewModels
             catch (Exception ex)
             {
                 LogService.MainLogger.Fatal(ex, "Load settings on startup fail");
+                ShowErrorMessage("Load settings on startup fail" + $":{ex.Message}", "Error");
             }
         }
 
@@ -287,6 +289,7 @@ namespace MES_Link.MainUI.ViewModels
             catch (Exception ex)
             {
                 LogService.MainLogger.Fatal(ex, "Save current settings fail");
+                ShowErrorMessage("Save current settings fail" + $":{ex.Message}", "Error");
             }
         }
 
@@ -338,6 +341,12 @@ namespace MES_Link.MainUI.ViewModels
         {
             if (block != null)
             {
+                if (!ConfirmDialog($"Delete this route?\n\nTagName: {block.TagName}", "Confirm"))
+                {
+                    LogService.MainLogger.Info("User cancelled route deletion.");
+                    return;
+                }
+
                 MesRoutes.Remove(block);
                 await SaveCurrentSettingsAsync(); // 刪除時自動更新暫存
             }
@@ -346,40 +355,58 @@ namespace MES_Link.MainUI.ViewModels
         // Server啟動/關閉
         private void ToggleServer()
         {
-            if (!_mesSimulatorService.IsRunning)
+            try
             {
-                // 啟動前強制把網址更新進 Service
-                _mesSimulatorService.BaseUrl = BaseUrlInput;
-
-                // Service Start 成功才處理
-                if (_mesSimulatorService.Start())
+                if (!_mesSimulatorService.IsRunning)
                 {
-                    LogService.MainLogger.Info("MES Simulator start successfully.");
+                    // 啟動前強制把網址更新進 Service
+                    _mesSimulatorService.BaseUrl = BaseUrlInput;
 
-                    // 調整後的邏輯：如果未鎖定，呼叫此方法會內部存檔並翻轉為鎖定狀態(true)
-                    if (!IsRoutesLocked)
+                    // Service Start 成功才處理
+                    if (_mesSimulatorService.Start())
                     {
-                        // 異步執行
-                        ToggleGlobalLockCommand.Execute(null);
+                        LogService.MainLogger.Info("Sever start successfully.");
+
+                        // 如果未鎖定，存檔並轉為鎖定狀態
+                        if (!IsRoutesLocked)
+                        {
+                            // 異步執行
+                            ToggleGlobalLockCommand.Execute(null);
+                        }
+                        else
+                        {
+                            // 原本即為鎖定狀態
+                            IsRoutesLocked = true;
+                        }
                     }
                     else
                     {
-                        // 若原本即為鎖定狀態，則直接確保指派即可
-                        IsRoutesLocked = true;
+                        LogService.MainLogger.Error("Sever start fail");
+                        ShowErrorMessage("Sever start fail", "Error");
                     }
                 }
-            }
-            else
-            {
-                // Service Stop 成功才處理
-                if (_mesSimulatorService.Stop())
+                else
                 {
-                    LogService.MainLogger.Info("MES Simulator stop successfully.");
+                    // Service Stop 成功才處理
+                    if (_mesSimulatorService.Stop())
+                    {
+                        LogService.MainLogger.Info("Sever stop successfully.");
+                    }
+                    else
+                    {
+                        LogService.MainLogger.Error("Sever stop fail");
+                        ShowErrorMessage("Sever stop fail", "Error");
+                    }
                 }
-            }
 
-            // 集中更新所有與 Server 狀態相關的 UI 通知
-            RefreshServerStatusUI();
+                // 集中更新所有與 Server 狀態相關的 UI 通知
+                RefreshServerStatusUI();
+            }
+            catch (Exception ex)
+            {
+                LogService.MainLogger.Fatal(ex, "Toggle server fail");
+                ShowErrorMessage("Toggle server fail" + $":{ex.Message}", "Error");
+            }
         }
 
         // 定義 JSON 檔案的儲存路徑
@@ -423,6 +450,27 @@ namespace MES_Link.MainUI.ViewModels
         {
             OnPropertyChanged(nameof(IsServerRunning));
             OnPropertyChanged(nameof(ServerButtonText));
+        }
+
+        // 錯誤跳窗
+        private void ShowErrorMessage(string message, string title, System.Windows.MessageBoxImage icon = System.Windows.MessageBoxImage.Error)
+        {
+            System.Windows.Application.Current.Dispatcher.Invoke(() =>
+            {
+                System.Windows.MessageBox.Show(message, title, System.Windows.MessageBoxButton.OK, icon);
+            });
+        }
+
+        // 確認跳窗
+        private bool ConfirmDialog(string message, string title)
+        {
+            var result = System.Windows.MessageBox.Show(
+                message,
+                title,
+                System.Windows.MessageBoxButton.YesNo,
+                System.Windows.MessageBoxImage.Question);
+
+            return result == System.Windows.MessageBoxResult.Yes;
         }
     }
 }
