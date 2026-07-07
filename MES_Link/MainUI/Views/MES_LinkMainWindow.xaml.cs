@@ -1,4 +1,5 @@
-﻿using System;
+﻿using MES_Link.MainUI.ViewModels;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
@@ -21,9 +22,10 @@ namespace MES_Link.MainUI.Views
     /// </summary>
     public partial class MainWindow : Window
     {
-        public MainWindow()
+        public MainWindow(MES_LinkViewModel viewModel)
         {
             InitializeComponent();
+            DataContext = viewModel;
         }
 
         private void LogView_TextChanged(object sender, TextChangedEventArgs e)

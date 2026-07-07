@@ -26,6 +26,7 @@
     <DefineConstants>DEBUG;TRACE</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
+    <Prefer32Bit>false</Prefer32Bit>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
     <PlatformTarget>AnyCPU</PlatformTarget>
@@ -76,7 +77,12 @@
     </Compile>
     <Compile Include="IniParser\IniConfig.cs" />
     <Compile Include="IniParser\IniFile.cs" />
+    <Compile Include="Interfaces\IDialogService.cs" />
+    <Compile Include="Interfaces\ILoggerService.cs" />
+    <Compile Include="Interfaces\IMesSimulatorService.cs" />
     <Compile Include="LogManager\LogService.cs" />
+    <Compile Include="LogManager\NLogLoggerService.cs" />
+    <Compile Include="MainUI\Services\WpfDialogService.cs" />
     <Compile Include="MainUI\Views\MES_LinkMainWindow.xaml.cs">
       <DependentUpon>MES_LinkMainWindow.xaml</DependentUpon>
       <SubType>Code</SubType>
@@ -87,6 +93,7 @@
     <Compile Include="MesSimulator\Models\MesSimulatorService.cs" />
     <Compile Include="MesSimulator\DataStructure\eLogType.cs" />
     <Compile Include="MesSimulator\DataStructure\MesRouteBlock.cs" />
+    <Compile Include="MesSimulator\Models\RouteMatcher.cs" />
     <Compile Include="Properties\AssemblyInfo.cs">
       <SubType>Code</SubType>
     </Compile>
@@ -121,6 +128,9 @@
     </PackageReference>
     <PackageReference Include="Microsoft.Extensions.Configuration.Ini">
       <Version>10.0.8</Version>
+    </PackageReference>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection">
+      <Version>10.0.9</Version>
     </PackageReference>
     <PackageReference Include="Microsoft.Xaml.Behaviors.Wpf">
       <Version>1.1.142</Version>

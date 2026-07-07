@@ -12,6 +12,8 @@ using System.IO;
 using System.Text;
 using System.Threading.Tasks;
 using System.Reflection;
+using MES_Link.Interfaces.MES_Link.Interfaces;
+using MES_Link.Interfaces;
 
 namespace MES_Link.MainUI.ViewModels
 {
@@ -21,7 +23,10 @@ namespace MES_Link.MainUI.ViewModels
         public RelayCommand WindowClosingCommand { get; }
 
         // MES 模擬器
-        private readonly MesSimulatorService _mesSimulatorService;
+        private readonly IMesSimulatorService _mesSimulatorService;
+        private readonly ILoggerService _logger;
+        private readonly IDialogService _dialogService;
+
         public ObservableCollection<MesRouteBlock> MesRoutes => _mesSimulatorService.Routes;
 
         // 增加List Route
@@ -63,12 +68,14 @@ namespace MES_Link.MainUI.ViewModels
             set => SetProperty(ref _copyRights, value);
         }
 
-        public MES_LinkViewModel()
+        public MES_LinkViewModel(IMesSimulatorService mesSimulatorService, ILoggerService logger, IDialogService dialogService)
         {
+            _logger = logger;
+            _dialogService = dialogService;
 
-            LogService.MainLogger.Info("Initial MES_Link...");
+            _logger.Info("Initial MES_Link...");
 
-            _mesSimulatorService = new MesSimulatorService();
+            _mesSimulatorService = mesSimulatorService;
             _mesSimulatorService.OnSimulatorLogAppended += MesSimulatorService_OnSimulatorLogAppended;
 
             AddRouteCommand = new RelayCommand(OnAddRoute);
@@ -157,11 +164,11 @@ namespace MES_Link.MainUI.ViewModels
                 // 複製到系統
                 System.Windows.Forms.Clipboard.SetText(fullUrl);
 
-                LogService.MainLogger.Info($"User copied URL: {fullUrl}");
+                _logger.Info($"User copied URL: {fullUrl}");
             }
             catch (Exception ex)
             {
-                LogService.MainLogger.Error(ex, "Copy url fail。");
+                _logger.Error(ex, "Copy url fail。");
                 ShowErrorMessage("Copy route url fail" + $":{ex.Message}", "Error");
             }
         }
@@ -176,7 +183,7 @@ namespace MES_Link.MainUI.ViewModels
                 // 檢查檔案是否存在，若不存在則直接初始化預設值並結束
                 if (!File.Exists(filePath))
                 {
-                    LogService.MainLogger.Info("Initial default setting for MesRouteBlock (File not found)");
+                    _logger.Info("Initial default setting for MesRouteBlock (File not found)");
                     InitializeDefaultSettings();
                     LoadBaseUrl();
                     return;
@@ -191,7 +198,7 @@ namespace MES_Link.MainUI.ViewModels
 
                 if (string.IsNullOrEmpty(jsonStr))
                 {
-                    LogService.MainLogger.Error("jsonStr is null or empty. Fallback to default.");
+                    _logger.Error("jsonStr is null or empty. Fallback to default.");
                     InitializeDefaultSettings();
                     LoadBaseUrl();
                     return;
@@ -201,7 +208,7 @@ namespace MES_Link.MainUI.ViewModels
                 var savedRoutes = JsonConvert.DeserializeObject<List<MesRouteBlock>>(jsonStr);
                 if (savedRoutes == null)
                 {
-                    LogService.MainLogger.Error("savedRoutes is null. Fallback to default.");
+                    _logger.Error("savedRoutes is null. Fallback to default.");
                     InitializeDefaultSettings();
                     LoadBaseUrl();
                     return;
@@ -210,7 +217,7 @@ namespace MES_Link.MainUI.ViewModels
                 // 檢查服務狀態
                 if (_mesSimulatorService == null || _mesSimulatorService.Routes == null)
                 {
-                    LogService.MainLogger.Error("_mesSimulatorService or _mesSimulatorService.Routes is null");
+                    _logger.Error("_mesSimulatorService or _mesSimulatorService.Routes is null");
                     return;
                 }
 
@@ -227,7 +234,7 @@ namespace MES_Link.MainUI.ViewModels
             }
             catch (Exception ex)
             {
-                LogService.MainLogger.Fatal(ex, "Load settings on startup fail");
+                _logger.Fatal(ex, "Load settings on startup fail");
                 ShowErrorMessage("Load settings on startup fail" + $":{ex.Message}", "Error");
             }
         }
@@ -288,7 +295,7 @@ namespace MES_Link.MainUI.ViewModels
             }
             catch (Exception ex)
             {
-                LogService.MainLogger.Fatal(ex, "Save current settings fail");
+                _logger.Fatal(ex, "Save current settings fail");
                 ShowErrorMessage("Save current settings fail" + $":{ex.Message}", "Error");
             }
         }
@@ -305,7 +312,7 @@ namespace MES_Link.MainUI.ViewModels
             // 確保主程式生命週期結束前，能將資料緩衝區成功 Flush 並寫入硬碟中
             Task.Run(async () => await SaveCurrentSettingsAsync()).Wait();
 
-            LogService.MainLogger.Info("Close Window ...");
+            _logger.Info("Close Window ...");
         }
 
         // MES 模擬器Log
@@ -343,7 +350,7 @@ namespace MES_Link.MainUI.ViewModels
             {
                 if (!ConfirmDialog($"Delete this route?\n\nTagName: {block.TagName}", "Confirm"))
                 {
-                    LogService.MainLogger.Info("User cancelled route deletion.");
+                    _logger.Info("User cancelled route deletion.");
                     return;
                 }
 
@@ -365,7 +372,7 @@ namespace MES_Link.MainUI.ViewModels
                     // Service Start 成功才處理
                     if (_mesSimulatorService.Start())
                     {
-                        LogService.MainLogger.Info("Sever start successfully.");
+                        _logger.Info("Sever start successfully.");
 
                         // 如果未鎖定，存檔並轉為鎖定狀態
                         if (!IsRoutesLocked)
@@ -381,7 +388,7 @@ namespace MES_Link.MainUI.ViewModels
                     }
                     else
                     {
-                        LogService.MainLogger.Error("Sever start fail");
+                        _logger.Error("Sever start fail");
                         ShowErrorMessage("Sever start fail", "Error");
                     }
                 }
@@ -390,11 +397,11 @@ namespace MES_Link.MainUI.ViewModels
                     // Service Stop 成功才處理
                     if (_mesSimulatorService.Stop())
                     {
-                        LogService.MainLogger.Info("Sever stop successfully.");
+                        _logger.Info("Sever stop successfully.");
                     }
                     else
                     {
-                        LogService.MainLogger.Error("Sever stop fail");
+                        _logger.Error("Sever stop fail");
                         ShowErrorMessage("Sever stop fail", "Error");
                     }
                 }
@@ -404,7 +411,7 @@ namespace MES_Link.MainUI.ViewModels
             }
             catch (Exception ex)
             {
-                LogService.MainLogger.Fatal(ex, "Toggle server fail");
+                _logger.Fatal(ex, "Toggle server fail");
                 ShowErrorMessage("Toggle server fail" + $":{ex.Message}", "Error");
             }
         }
@@ -453,24 +460,15 @@ namespace MES_Link.MainUI.ViewModels
         }
 
         // 錯誤跳窗
-        private void ShowErrorMessage(string message, string title, System.Windows.MessageBoxImage icon = System.Windows.MessageBoxImage.Error)
+        private void ShowErrorMessage(string message, string title)
         {
-            System.Windows.Application.Current.Dispatcher.Invoke(() =>
-            {
-                System.Windows.MessageBox.Show(message, title, System.Windows.MessageBoxButton.OK, icon);
-            });
+            _dialogService.ShowError(message, title);
         }
 
         // 確認跳窗
         private bool ConfirmDialog(string message, string title)
         {
-            var result = System.Windows.MessageBox.Show(
-                message,
-                title,
-                System.Windows.MessageBoxButton.YesNo,
-                System.Windows.MessageBoxImage.Question);
-
-            return result == System.Windows.MessageBoxResult.Yes;
+            return _dialogService.Confirm(message, title);
         }
     }
 }

@@ -19,10 +19,6 @@
         </i:EventTrigger>
     </i:Interaction.Triggers>
 
-    <Window.DataContext>
-        <local:MES_LinkViewModel />
-    </Window.DataContext>
-
     <Window.Resources>
         <Style x:Key="ModernIconButton" TargetType="Button">
             <Setter Property="Background" Value="Transparent"/>

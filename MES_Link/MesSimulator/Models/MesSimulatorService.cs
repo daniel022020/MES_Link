@@ -10,10 +10,11 @@ using MES_Link.Log;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Newtonsoft.Json;
 using System.Collections.Generic;
+using MES_Link.Interfaces.MES_Link.Interfaces;
 
 namespace MES_Link.MesSimulator
 {
-    public class MesSimulatorService
+    public class MesSimulatorService : IMesSimulatorService
     {
         private HttpListener _listener;
         private bool _isRunning;
@@ -23,7 +24,7 @@ namespace MES_Link.MesSimulator
         public ObservableCollection<MesRouteBlock> Routes { get; set; } = new ObservableCollection<MesRouteBlock>();
 
         // 用於跨執行緒鎖定 ObservableCollection 的鎖定物件
-        public readonly object RoutesLock = new object();
+        public object RoutesLock { get; } = new object();
 
         // 當模擬器收到連線或發生事件時，通知 ViewModel 的事件
         public event Action<string> OnSimulatorLogAppended;
@@ -116,7 +117,7 @@ namespace MES_Link.MesSimulator
                     }
 
                     // 如果不是主動關閉，才記錄下來
-                    ShowLog(eLogType.FATAL,  $"Unexpected listener error: {ex.Message}");
+                    ShowLog(eLogType.FATAL, $"Unexpected listener error: {ex.Message}");
                 }
                 catch (Exception ex)
                 {
@@ -257,7 +258,7 @@ namespace MES_Link.MesSimulator
             {
                 snapshot = Routes.ToList(); // 複製一份，離開 lock 後在複製品上操作
             }
-            return snapshot.FirstOrDefault(r => r.RouteUrl.Equals(path, StringComparison.OrdinalIgnoreCase));
+            return RouteMatcher.Match(snapshot, path);
         }
 
         // 寫Log，UI同步新增
