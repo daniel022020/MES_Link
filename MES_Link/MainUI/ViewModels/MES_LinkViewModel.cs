@@ -138,16 +138,43 @@ namespace MES_Link.MainUI.ViewModels
             set => SetProperty(ref _simulatorLog, value);
         }
 
+
+        private bool _isToggling;
+
         // 編輯、儲存全域按鈕
         private async Task OnToggleGlobalLockAsync()
         {
-            if (!IsRoutesLocked)
+            if (_isToggling) 
+                return;
+
+            _isToggling = true;
+
+            try
             {
-                // 從 編輯 切換回 儲存 時，集體存檔
-                await SaveCurrentSettingsAsync();
-                IniFile.Save(IniFile.Current);
+                bool wasEditable = !IsRoutesLocked;
+
+                // 先切換 UI
+                IsRoutesLocked = !IsRoutesLocked;
+
+                if (wasEditable)
+                {
+                    try
+                    {
+                        await SaveCurrentSettingsAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        // 存檔失敗就復原成編輯狀態
+                        IsRoutesLocked = false;
+                        _logger.Error(ex, "Save fail, revert to editable.");
+                        ShowErrorMessage("Save fail! Please retry again." + $":{ex.Message}", "Error");
+                    }
+                }
             }
-            IsRoutesLocked = !IsRoutesLocked;
+            finally
+            {
+                _isToggling = false;
+            }
         }
 
         // 複製List Url
@@ -291,7 +318,7 @@ namespace MES_Link.MainUI.ViewModels
                 }
 
                 IniFile.Current.MesSimulatorSettings.BaseUrl = BaseUrlInput;
-                IniFile.Save(IniFile.Current);
+                await IniFile.SaveAsync(IniFile.Current);
             }
             catch (Exception ex)
             {
@@ -440,7 +467,7 @@ namespace MES_Link.MainUI.ViewModels
                 Assembly assembly = Assembly.GetExecutingAssembly();
 
                 // 版號
-                string version = assembly.GetName().Version?.ToString() ?? "2.4.0.20";
+                string version = assembly.GetName().Version?.ToString() ?? "2.4.0.21";
 
                 // 組合字串
                 CopyRights = $"Version {version}";
@@ -448,7 +475,7 @@ namespace MES_Link.MainUI.ViewModels
             catch (Exception)
             {
                 // 預設值
-                CopyRights = "Version 2.4.0.20";
+                CopyRights = "Version 2.4.0.21";
             }
         }
 

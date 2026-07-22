@@ -267,8 +267,8 @@
                                                FontSize="13" 
                                                FontWeight="Bold"
                                                Grid.Column="0"/>
-                                    
-                                    <TextBox Text="{Binding DataContext.BaseUrlInput, RelativeSource={RelativeSource AncestorType=GroupBox}}" 
+
+                                    <TextBox Text="{Binding DataContext.BaseUrlInput, RelativeSource={RelativeSource AncestorType=GroupBox}, UpdateSourceTrigger=PropertyChanged}" 
                                              IsEnabled="{Binding DataContext.IsRoutesEditable, RelativeSource={RelativeSource AncestorType=GroupBox}}"
                                              Background="#090D16" 
                                              Foreground="#F8FAFC" 

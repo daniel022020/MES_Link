@@ -4,6 +4,7 @@ using System.Text;
 using MES_Link.IniParser;
 using Microsoft.Extensions.Configuration;
 using MES_Link.Log;
+using System.Threading.Tasks;
 
 namespace MES_Link.IniParser
 {
@@ -74,6 +75,28 @@ namespace MES_Link.IniParser
             catch (Exception ex)
             {
                 LogService.MainLogger.Fatal(ex, "[Exception] Save ini file fail");
+            }
+        }
+
+
+        // UI 觸發使用
+        public static async Task SaveAsync(IniConfig config)
+        {
+            if (config == null) 
+                return;
+
+            try
+            {
+                using (var writer = new StreamWriter(IniPath, false, Encoding.UTF8))
+                {
+                    await writer.WriteLineAsync($"[{nameof(IniConfig.MesSimulatorSettings)}]");
+                    await writer.WriteLineAsync($"{nameof(MesSimulatorSettingsSection.BaseUrl)}={config.MesSimulatorSettings.BaseUrl}");
+                }
+                Current = config;
+            }
+            catch (Exception ex)
+            {
+                LogService.MainLogger.Fatal(ex, "[Exception] Save ini file fail (Async)");
             }
         }
     }
